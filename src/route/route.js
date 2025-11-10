@@ -55,13 +55,18 @@ import {
   updateSessionHandler,
 } from "../controlers/session.controlers.js";
 
+import { saveToken, sendByProjectId, resetBadge } from "../controlers/notifications.js";
 import userRegisterControler, {
   getUsersByBranchController,
+  getUserByIdController,
   updateUserController,
   userManagementController,
   createBranchController,
   adminListAllBranchesController,
   adminGetUsersByBranchIdController,
+  forgotPassword,
+  resetPassword,
+  getUserStatus,
 } from "../controlers/user.controlers.js";
 
 import { updateProfileController } from "../controlers/user.profile.controllers.js";
@@ -92,7 +97,7 @@ const routeFunc = (app) => {
   app.get("/get-all-user", requireUser, userManagementController);
   app.post("/update-user/:id", requireUser, updateUserController);
   app.get("/users/by-branch", requireUser, getUsersByBranchController);
-
+  app.get("/user-status/:id", requireUser, getUserStatus);
   /* Profile (multipart allowed) */
   app.put(
     "/profile/update",
@@ -113,11 +118,22 @@ const routeFunc = (app) => {
     sendMessage
   );
   app.get("/chat/:id", requireUser, getChats);
-
-  app.post("/branches", requireAdmin, createBranchController);
+  app.post("/forgot-password", forgotPassword);
+  app.post("/reset-password", resetPassword);
+  app.get("/user/:id", requireUser, getUserByIdController);
+  app.post("/branches", requireUser, createBranchController);
   app.get("/admin/branches", adminListAllBranchesController);
   app.get("/admin/branches/:branchId/users", adminGetUsersByBranchIdController);
   app.get("/get-user-converstaion", requireUser, getUserConversations);
+  /* Notifications */
+  app.post("/save-token", saveToken);
+  app.post("/send-by-project", sendByProjectId);
+  app.post("/reset-badge", resetBadge);
+
+
+
+
+
   /* Groups */
   app.post(
     "/create-group",
@@ -156,14 +172,14 @@ const routeFunc = (app) => {
   );
   app.patch("/groups/:id/members/:userId", requireUser, hideMemberController);
   app.put("/groups/:groupId/members", requireUser, updateGroupMembers);
- app.post(
-  "/groups/:id/messages",
-  requireUser,
-  uploadChatAny,       
-  extractS3Uploads,    
-  sendGroupMessageController
-);
-  app.get("/group/:id",requireUser, getGroupController);
+  app.post(
+    "/groups/:id/messages",
+    requireUser,
+    uploadChatAny,
+    extractS3Uploads,
+    sendGroupMessageController
+  );
+  app.get("/group/:id", requireUser, getGroupController);
   app.put(
     "/groups/:id/update",
     requireUser,

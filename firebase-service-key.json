@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "416435162398",
+    "project_id": "smexpert-b5c96",
+    "storage_bucket": "smexpert-b5c96.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:416435162398:android:4e86edfdbca66dcc6a0d0f",
+        "android_client_info": {
+          "package_name": "com.ifdadevelopment.myapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC1iazhc57YMAlIokpbd8W1SVuFcsGQ6N0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

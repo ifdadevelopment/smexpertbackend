@@ -1,90 +1,150 @@
-// backend/socket.js
 import { Server } from "socket.io";
 import GroupMessage from "./model/groupConversation/groupMessage.model.js";
 import Message from "./model/messageModal/messageModal.js";
+import User from "./model/user.model.js";
 
 let io;
 export const onlineUsers = new Map();
 
 export const initSocket = (server) => {
-  io = new Server(server, {
-    cors: { origin: "*" },
-  });
+  io = new Server(server, { cors: { origin: "*" } });
 
   io.on("connection", (socket) => {
-    // Register user (existing)
-    socket.on("register", (userId) => {
+
+    // ✅ USER ONLINE
+    socket.on("register", async (userId) => {
       if (!userId) return;
       onlineUsers.set(String(userId), socket.id);
-      console.log("Registered user:", userId, socket.id);
+
+      await User.findByIdAndUpdate(userId, { online: true });
+
+      io.emit("update_user_status", {
+        userId,
+        online: true,
+      });
     });
 
-    // NEW: join/leave a group "room"
+    // ✅ JOIN GROUP
     socket.on("join_group", ({ groupId }) => {
-      if (!groupId) return;
-      socket.join(`group:${groupId}`);
+      if (groupId) socket.join(`group:${groupId}`);
     });
-    socket.on("leave_group", ({ groupId }) => {
-      if (!groupId) return;
-      socket.leave(`group:${groupId}`);
+
+    // ✅ SEND GROUP MESSAGE
+    socket.on("send_group_message", async (data) => {
+      try {
+        const { groupId, senderId, message } = data;
+
+        if (!groupId || !senderId || !message) {
+          return socket.emit("group_message_error", {
+            message: "senderId, groupId and message are required!",
+          });
+        }
+
+        const newMessage = await GroupMessage.create({
+          groupId,
+          senderId,
+          message,
+          isReadBy: [senderId],
+        });
+
+        io.to(`group:${groupId}`).emit("receive_group_message", newMessage);
+      } catch (err) {
+        socket.emit("group_message_error", { message: err.message });
+      }
     });
- socket.on("send_group_message", async (data) => {
-  const message = await GroupMessage.create({
-    ...data,
-    isReadBy: [data.senderId], // mark sender as read
-  });
 
-  // Emit message to all group members
-  io.to(`group:${data.groupId}`).emit("receive_group_message", message);
-});
+    // ✅ MARK GROUP READ
+    socket.on("mark_group_as_read", async ({ groupId, userId }) => {
+      await GroupMessage.updateMany(
+        { groupId, isReadBy: { $ne: userId } },
+        { $push: { isReadBy: userId } }
+      );
+    });
 
-// When user opens group, mark all as read
-socket.on("mark_group_as_read", async ({ groupId, userId }) => {
-  await GroupMessage.updateMany(
-    { groupId, isReadBy: { $ne: userId } },
-    { $push: { isReadBy: userId } }
-  );
-});
-// ✅ When group chat opened
-socket.on("mark_group_as_read", async ({ groupId, userId }) => {
-  try {
-    await GroupMessage.updateMany(
-      { groupId, isReadBy: { $ne: userId } },
-      { $push: { isReadBy: userId } }
-    );
-  } catch (err) {
-    console.error("mark_group_as_read error:", err);
-  }
-});
+    // ✅ PRIVATE CHAT READ
+    socket.on("mark_chat_as_read", async ({ conversationId, userId }) => {
+      await Message.updateMany(
+        { conversationId, isReadBy: { $ne: userId } },
+        { $push: { isReadBy: userId } }
+      );
+    });
 
-// ✅ When private chat opened
-socket.on("mark_chat_as_read", async ({ conversationId, userId }) => {
-  try {
-    await Message.updateMany(
-      { conversationId, isReadBy: { $ne: userId } },
-      { $push: { isReadBy: userId } }
-    );
-  } catch (err) {
-    console.error("mark_chat_as_read error:", err);
-  }
-});
+    // ✅ PRIVATE + GROUP TYPING
+    socket.on("typing", ({ peerId, groupId, userId }) => {
+      if (peerId) {
+        const receiverSocket = onlineUsers.get(String(peerId));
+        if (receiverSocket) {
+          io.to(receiverSocket).emit("user_typing", { userId });
+        }
+      }
+      if (groupId) {
+        socket.to(`group:${groupId}`).emit("user_typing", { userId, groupId });
+      }
+    });
 
-    // Disconnect (existing)
-    socket.on("disconnect", () => {
-      for (const [userId, id] of onlineUsers.entries()) {
-        if (id === socket.id) {
+    socket.on("stop_typing", ({ peerId, groupId, userId }) => {
+      if (peerId) {
+        const receiverSocket = onlineUsers.get(String(peerId));
+        if (receiverSocket) {
+          io.to(receiverSocket).emit("user_stop_typing", { userId });
+        }
+      }
+      if (groupId) {
+        socket.to(`group:${groupId}`).emit("user_stop_typing", { userId, groupId });
+      }
+    });
+
+    // ✅ MESSAGE DELIVERED (ONLY TO TARGET USER)
+    socket.on("message_delivered", async ({ messageId, to }) => {
+      await Message.findByIdAndUpdate(messageId, { delivered: true });
+      const targetSocket = onlineUsers.get(String(to));
+      if (targetSocket) {
+        io.to(targetSocket).emit("message_status_update", {
+          messageId,
+          delivered: true,
+        });
+      }
+    });
+
+    // ✅ MESSAGE READ (ONLY TO TARGET USER)
+    socket.on("message_read", async ({ messageId, to }) => {
+      await Message.findByIdAndUpdate(messageId, { read: true });
+      const targetSocket = onlineUsers.get(String(to));
+      if (targetSocket) {
+        io.to(targetSocket).emit("message_status_update", {
+          messageId,
+          read: true,
+        });
+      }
+    });
+
+    // ✅ USER OFFLINE + LAST SEEN FIXED
+    socket.on("disconnect", async () => {
+      for (const [userId, sockId] of onlineUsers.entries()) {
+        if (sockId === socket.id) {
           onlineUsers.delete(userId);
-          console.log("User disconnected:", userId);
+
+          await User.findByIdAndUpdate(userId, {
+            online: false,
+            lastSeen: new Date(),
+          });
+
+          io.emit("update_user_status", {
+            userId,
+            online: false,
+            lastSeen: new Date(),
+          });
           break;
         }
       }
     });
+
   });
 
   return io;
 };
 
 export const getIo = () => {
-  if (!io) throw new Error("Socket.io not initialized!");
+  if (!io) throw new Error("Socket not initialized");
   return io;
 };

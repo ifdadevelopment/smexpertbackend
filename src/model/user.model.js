@@ -18,6 +18,10 @@ const UserSchema = new mongoose.Schema(
     active: { type: Boolean, default: false },
     profileImage: { type: String, default: "" },
     profession: { type: String, default: "" },
+    resetOtp: { type: String, default: null },
+    otpExpiry: { type: Number, default: null },
+    online: { type: Boolean, default: false },
+    lastSeen: { type: Date, default: null },
   },
   { timestamps: true }
 );

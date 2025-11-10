@@ -8,11 +8,16 @@ import {
   findUsersByBranchService,
 } from "../service/user.service.js";
 import BranchModel from "../model/branch.model.js";
+import UserModel from "../model/user.model.js";
+import { sendResetPasswordEmail } from "../utils/NodeMailerUtils.js";
+import { generateTokenByJwt, decodeTokenByJwt } from "../utils/utils.jwt.js";
 
 // POST /register  (branchId OR branchName supported)
 const normalizeStr = (v) => (typeof v === "string" ? v.trim() : "");
 const toId = (v) =>
-  v && typeof v === "object" && typeof v.$oid === "string" ? v.$oid : String(v || "");
+  v && typeof v === "object" && typeof v.$oid === "string"
+    ? v.$oid
+    : String(v || "");
 
 export const userRegisterControler = async (req, res) => {
   try {
@@ -27,7 +32,8 @@ export const userRegisterControler = async (req, res) => {
     if (!emailTrim) return res.status(400).json({ error: "Email is required" });
 
     const existUser = await findUserService({ email: emailTrim });
-    if (existUser) return res.status(400).json({ error: "Email Already Exist" });
+    if (existUser)
+      return res.status(400).json({ error: "Email Already Exist" });
 
     // --- Resolve/ensure branch → { id, name } ---
     let branchId = normalizeStr(toId(rawBranchId));
@@ -50,12 +56,16 @@ export const userRegisterControler = async (req, res) => {
     } else {
       // No branchId; need a name to create or find
       if (!branchName) {
-        return res.status(400).json({ error: "Branch ID or Branch Name is required" });
+        return res
+          .status(400)
+          .json({ error: "Branch ID or Branch Name is required" });
       }
 
       // Try to find by case-insensitive name; if not found, create active branch
-      branchDoc = await BranchModel
-        .findOne({ name: new RegExp(`^${branchName}$`, "i"), isActive: true })
+      branchDoc = await BranchModel.findOne({
+        name: new RegExp(`^${branchName}$`, "i"),
+        isActive: true,
+      })
         .select({ _id: 1, name: 1 })
         .lean();
 
@@ -108,7 +118,9 @@ const userManagementController = async (req, res) => {
     return res.status(200).json(users);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Server error", error: err.message });
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
   }
 };
 
@@ -121,21 +133,23 @@ export const updateUserController = async (req, res) => {
     }
     if (!id) return res.status(400).json({ error: "User ID is required" });
     if (id === String(req.user._id)) {
-      return res.status(400).json({ error: "You cannot update your own profile" });
+      return res
+        .status(400)
+        .json({ error: "You cannot update your own profile" });
     }
     const updatedUser = await updateUserService(id, req.body);
-    if (!updatedUser) return res.status(404).json({ message: "User not found" });
+    if (!updatedUser)
+      return res.status(404).json({ message: "User not found" });
     await updateSessionService({ user: id }, { valid: false });
     return res.status(200).json({ message: "User updated successfully" });
   } catch (err) {
     console.error("Error in updateUserController:", err);
-    return res.status(500).json({ message: "Server error", error: err.message });
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
   }
 };
 
-// USER scope: GET /users/by-branch  — already existed
-// controllers/user.controlers.js  (replace this function)
-// controllers/user.controlers.js
 export const getUsersByBranchController = async (req, res) => {
   try {
     const isAdmin = req.user?.user_type === "admin";
@@ -155,18 +169,22 @@ export const getUsersByBranchController = async (req, res) => {
       const where = branchId
         ? { _id: branchId, isActive: true }
         : { name: branchName, isActive: true };
-      const branchDoc = await BranchModel
-        .findOne(where)
+      const branchDoc = await BranchModel.findOne(where)
         .select({ _id: 1, name: 1 })
         .lean();
 
-      if (!branchDoc) return res.status(404).json({ error: "Branch not found or inactive" });
+      if (!branchDoc)
+        return res.status(404).json({ error: "Branch not found or inactive" });
       targetBranch = { id: String(branchDoc._id), name: branchDoc.name || "" };
     }
 
-    if (!targetBranch?.id) return res.status(400).json({ error: "User branch not found" });
+    if (!targetBranch?.id)
+      return res.status(400).json({ error: "User branch not found" });
 
-    const limit = Math.min(Math.max(parseInt(req.query.limit || "30", 10), 1), 100);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit || "30", 10), 1),
+      100
+    );
     const skip = Math.max(parseInt(req.query.skip || "0", 10), 0);
     const search = (req.query.search || "").trim();
 
@@ -201,12 +219,11 @@ export const getUsersByBranchController = async (req, res) => {
       users: list,
     });
   } catch (err) {
-    return res.status(500).json({ error: "Server error", details: err.message });
+    return res
+      .status(500)
+      .json({ error: "Server error", details: err.message });
   }
 };
-
-
-
 
 // ADMIN: GET /admin/branches  — list all active branches
 export const adminListAllBranchesController = async (_req, res) => {
@@ -217,7 +234,9 @@ export const adminListAllBranchesController = async (_req, res) => {
       .lean();
     return res.status(200).json(branches);
   } catch (err) {
-    return res.status(500).json({ error: "Server error", details: err.message });
+    return res
+      .status(500)
+      .json({ error: "Server error", details: err.message });
   }
 };
 
@@ -225,40 +244,179 @@ export const adminListAllBranchesController = async (_req, res) => {
 export const adminGetUsersByBranchIdController = async (req, res) => {
   try {
     const { branchId } = req.params;
-    if (!branchId) return res.status(400).json({ error: "branchId is required" });
-    const branch = await BranchModel.findOne({ _id: branchId, isActive: true }).lean();
-    if (!branch) return res.status(404).json({ error: "Branch not found or inactive" });
+    if (!branchId)
+      return res.status(400).json({ error: "branchId is required" });
+    const branch = await BranchModel.findOne({
+      _id: branchId,
+      isActive: true,
+    }).lean();
+    if (!branch)
+      return res.status(404).json({ error: "Branch not found or inactive" });
 
     const users = await findUsersByBranchService({ id: branch._id });
-    return res.status(200).json({ success: true, branch: { id: branch._id, name: branch.name }, users });
+    return res
+      .status(200)
+      .json({
+        success: true,
+        branch: { id: branch._id, name: branch.name },
+        users,
+      });
   } catch (err) {
-    return res.status(500).json({ error: "Server error", details: err.message });
+    return res
+      .status(500)
+      .json({ error: "Server error", details: err.message });
   }
 };
 
-// (optional) POST /branches (admin) — add new branch directly
 export const createBranchController = async (req, res) => {
   try {
-    const { name, code } = req.body || {};
-    if (!name?.trim()) return res.status(400).json({ error: "Branch name is required" });
+    let { name, code } = req.body || {};
+if (req.user.user_type !== "admin") {
+  return res.status(403).json({ error: "Only admins can create branches" });
+}
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Branch name is required" });
+    }
 
-    const existing = await BranchModel.findOne({
-      $or: [{ name: name.trim() }, ...(code ? [{ code: code.trim().toUpperCase() }] : [])],
-    });
-    if (existing) return res.status(409).json({ error: "Branch already exists" });
+    name = name.trim();
+    code = code?.trim()?.toUpperCase() || name.slice(0, 4).toUpperCase();
 
-    const branch = await BranchModel.create({
-      name: name.trim(),
-      code: code?.trim()?.toUpperCase(),
-      isActive: true,
+    // ensure code not empty
+    if (!code) {
+      code = name.slice(0, 4).toUpperCase();
+    }
+
+    const existingBranch = await BranchModel.findOne({
+      $or: [{ name }, { code }]
     });
-    return res.status(201).json(branch);
+
+    if (existingBranch) {
+      return res.status(409).json({
+        error: "Branch already exists",
+        exists: {
+          _id: existingBranch._id,
+          name: existingBranch.name,
+          code: existingBranch.code
+        }
+      });
+    }
+
+    const newBranch = await BranchModel.create({
+      name,
+      code,
+      isActive: true
+    });
+
+    return res.status(201).json({
+      message: "Branch created successfully",
+      _id: newBranch._id,
+      name: newBranch.name,
+      code: newBranch.code,
+      isActive: newBranch.isActive
+    });
+
   } catch (err) {
-    return res.status(500).json({ error: "Server error", details: err.message });
+    console.error("createBranchController error:", err);
+
+    if (err.code === 11000) {
+      return res.status(409).json({ error: "Duplicate branch entry" });
+    }
+
+    return res.status(500).json({
+      error: "Server error",
+      details: err.message
+    });
   }
 };
 
-export {
-  userManagementController,
+export const getUserByIdController = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+    const user = await UserModel.findById(id).select(
+      "name email profileImage user_type branchId"
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.status(200).json(user);
+  } catch (error) {
+    console.error("getUserByIdController error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 };
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = (req.body || {});
+    if (!email) return res.status(400).json({ success: false, message: "Email is required" });
+
+    const user = await UserModel.findOne({ email: email.trim().toLowerCase() });
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = Date.now() + 10 * 60 * 1000; // ms
+    user.resetOtp = otp;
+    user.otpExpiry = otpExpiry;
+    await user.save();
+    const html = `<b>${otp}</b>.`;
+    await sendResetPasswordEmail(user.email, html);
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent to email",
+    });
+  } catch (err) {
+    console.error("forgotPassword error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+export const resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = (req.body || {});
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ success: false, message: "Email, OTP and newPassword are required" });
+    }
+
+    const user = await UserModel.findOne({ email: email.trim().toLowerCase() });
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    if (!user.resetOtp || !user.otpExpiry) {
+      return res.status(400).json({ success: false, message: "No OTP requested. Please request a new OTP." });
+    }
+    if (String(user.resetOtp).trim() !== String(otp).trim()) {
+      return res.status(400).json({ success: false, message: "Invalid OTP" });
+    }
+    if (Date.now() > Number(user.otpExpiry)) {
+      user.resetOtp = null;
+      user.otpExpiry = null;
+      await user.save();
+      return res.status(400).json({ success: false, message: "OTP expired. Request a new OTP." });
+    }
+    user.password = newPassword;
+    user.resetOtp = null;
+    user.otpExpiry = null;
+    await user.save();
+
+    return res.status(200).json({ success: true, message: "Password reset successful" });
+  } catch (err) {
+    console.error("resetPassword error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+export const getUserStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("online lastSeen");
+    return res.json(user);
+  } catch {
+    return res.status(400).json({ message: "Failed to get status" });
+  }
+};
+
+
+
+
+export { userManagementController };
 export default userRegisterControler;
+

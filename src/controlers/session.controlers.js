@@ -41,11 +41,11 @@ export const createUserSessionHandler = async (req, res) => {
         // await sendMailService();
 
         const accessToken = await generateTokenByJwt({ ...user, session: session._id, id: 1 }, {
-            expiresIn: 5 * 60
+            expiresIn: "5m"
         });
 
         const refreshToken = await generateTokenByJwt(session, {
-            expiresIn: 24 * 60 * 60 * 365
+            expiresIn: "7d"
         });
 
         // const userIpAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
@@ -105,35 +105,38 @@ export const updateSessionHandler = async (req, res) => {
 // Re Issue Access Token Controler
 export const reIssueAccessTokenSessionHandler = async (req, res) => {
     try {
-        const {
-            refreshToken
-        } = get(req, "body");
-        const tk = jwt.verify(refreshToken, 'munna_bahi_private_key');
+        const { refreshToken } = get(req, "body");
+
         if (!refreshToken) {
-            return res.json({
-                "error": "Refresh Token is required"
-            }).status(401);
+            return res.status(401).json({ error: "Refresh Token is required" });
         }
-        else {
-            const accessToken = await reIssueAccessToken(refreshToken);
-            const decode = await decodeTokenByJwt(accessToken);
-            const my_user = decode.decode;
-            if (accessToken && my_user) {
-                return res.json({
-                    message: "Access Token Generated Successfully!",
-                    accessToken,
-                    my_user
-                }).status(200);
-            }
-            else {
-                return res.json({
-                    "error": "Invalid Session"
-                });
-            }
+
+        const SECRET = process.env.JWT_SECRET;
+        if (!SECRET) {
+            return res.status(500).json({ error: "JWT_SECRET not configured in env" });
         }
+
+        // FIXED ✅ no hardcoded secret
+        const tk = jwt.verify(refreshToken, SECRET);
+
+        const accessToken = await reIssueAccessToken(refreshToken);
+        const decode = await decodeTokenByJwt(accessToken);
+        const my_user = decode.decode;
+
+        if (accessToken && my_user) {
+            return res.status(200).json({
+                message: "Access Token Generated Successfully!",
+                accessToken,
+                my_user,
+            });
+        } else {
+            return res.json({ error: "Invalid Session" });
+        }
+
     } catch (error) {
-        res.json({ "error": `${error}` }).status(500);
+        return res.status(500).json({ error: error.message });
     }
-}
+};
+
 
 

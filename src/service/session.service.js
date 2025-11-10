@@ -22,7 +22,7 @@ export function createAccessToken(
   const accessToken = generateTokenByJwt(
     { ...user, session: p_session._id },
     {
-      expiresIn: 5 * 60
+      expiresIn: "5m"
     }
   );
   return accessToken;
